@@ -45,7 +45,7 @@ class RingB {
         int read(uint8_t *str, int len){
             for (int j=0;j<len;j++){
                 int current = read();
-                if (current==0){
+                if (current<=0){
                     return j-1;
                 }
                 str[j] = current;

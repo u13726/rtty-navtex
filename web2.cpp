@@ -1,28 +1,26 @@
+#include <sys/types.h>
+#include <sys/_stdint.h>
 #include "WString.h"
 
 
 #include <Arduino.h>
 #include <stdint.h>
 #include "Str.h"
- // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
-
-//
-// Shows how to serve a large HTML page from flash memory without copying it to heap in a temporary buffer
-#if defined(ESP32) || defined(LIBRETINY)
 #include <AsyncTCP.h>
 #include <WiFi.h>
-#elif defined(ESP8266)
-#include <ESP8266WiFi.h>
-#include <ESPAsyncTCP.h>
-#elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
-#include <RPAsyncTCP.h>
-#include <WiFi.h>
-#endif
+#include <ESPAsyncWebServer.h>
+#include "time.h"
+#include "ssid.h"
+char ssid [SSIDLEN]=      "Your ssid goed here      ";
+char password [SSIDLEN] = "or in the preferences    ";
 
+
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 0;
+const int   daylightOffset_sec = 3600;
+ 
 #include "FS.h"
 #include <LittleFS.h>
-#include <ESPAsyncWebServer.h>
 
 static AsyncWebServer serveur(80);
 AsyncWebServerRequest *srequest=NULL;
@@ -30,25 +28,12 @@ extern void deleteFile2(fs::FS &fs, const char *path);
 
 extern void handle(char);
 extern char screen[40][81];
-static const char *htmlContent PROGMEM = R"(
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Sample HTML</title>
-</head>
-<body>
-    <h1>Hello, World!</h1>
-</html>
-)";
-
-static const size_t htmlContentLength = strlen_P(htmlContent);
-#include "RingB.h"
-
- RingB ron(512);
+ #include "RingB.h"
+ RingB ron(1111);
  bool custer=false;
  AsyncResponseStream* response ;
- #include "ssid.h"
- WiFiServer wifi;
+ 
+WiFiServer wifi;
 bool pos0=false; 
 void web_log(char *s){
    for(;custer && ron.availableToWrite()>1 && *s;s++) 
@@ -75,7 +60,7 @@ void web_log(char s){
     }
  
 // parameters
-extern float volume;
+extern float volume,volumeOut;
 extern float MARK;
 extern float SPACE;// = 1.0;
 extern bool hsb,navtex;
@@ -94,7 +79,13 @@ int Baud = 50,Shift= 85;
                     <input type='range' id='volume' name='volume'
                             onchange='this.form.submit()'
                             min='0' max='1' step='0.01' value='%volume%'>
-                    <label for='volume'>Volume</label>
+                    <label for='volume'>Volume in</label>
+                </div>
+                <div>
+                    <input type='range' id='volumeOut' name='volumeOut'
+                            onchange='this.form.submit()'
+                            min='0' max='1' step='0.01' value='%volumeOut%'>
+                    <label for='volumeOut'>Volume out</label>
                 </div>
                 <div>
                     <label for='MARK'>Mark</label>
@@ -163,6 +154,7 @@ void getpara(AsyncWebServerRequest *request)
 
   {    html=para;
         html.replace("%volume%",volume);
+    html.replace("%volumeOut%",volumeOut);
     html.replace("%MARK%",MARK);
     html.replace("%SPACE%",SPACE);
     html.replace("%Baud%",baud_tab[bidx]);
@@ -176,8 +168,11 @@ void getpara(AsyncWebServerRequest *request)
     html.replace("%Hsb%",hsb?" checked ":"");
     html.replace("%Nav%",navtex?" checked ":"");
    request->send(200,"text/html",(uint8_t *) html.c_str(),html.length());}
-
-extern String listDirHTML();
+#ifdef FILE 
+extern void listDirHTML(char*,int n);
+char buflog[4096]="";
+int stalog=0;
+#endif
 void web_setup() { 
      if (WiFi.status() != WL_CONNECTED && ssid!=nullptr && password!=nullptr){
                 WiFi.begin(ssid, password);
@@ -195,7 +190,8 @@ void web_setup() {
                 Serial.print("Started Server at ");
                 Serial.print(WiFi.localIP());
                 Serial.print(":");
-                Serial.println(80          );
+                Serial.println(80);
+                  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
             }
         
   static const char *hover PROGMEM = R"(
@@ -221,7 +217,9 @@ void web_setup() {
     if (request->hasParam("Shift", true)) 
         Shift =(request->getParam("Shift", true)->value().toInt());
       if (request->hasParam("volume", true)) 
-        volume =(request->getParam("volume", true)->value().toFloat());
+        {volume =0.1+(request->getParam("volume", true)->value().toFloat());handle('w');}
+      if (request->hasParam("volumeOut", true)) 
+        {volumeOut =0.1+(request->getParam("volumeOut", true)->value().toFloat());handle('v');}
    for(bidx=0;baud_tab[bidx] && baud_tab[bidx]!=Baud;bidx++) ;
         if(!baud_tab[bidx]) bidx--;
         for(sidx=0;shift_tab[sidx] && shift_tab[sidx]!=Shift;sidx++);
@@ -259,21 +257,22 @@ void web_setup() {
   
   serveur.on("/handle_S",HTTP_GET,[](AsyncWebServerRequest *request) {
     handleweb(request,'S');});
-  
+  #ifdef FILE
   serveur.on("/logs",HTTP_GET,[](AsyncWebServerRequest *request) {
-      String pre,mid,end;
-
-      
- pre="<html><body><script>function ab(s){pf=document.getElementById('prv');pf.data=s;}function cd(s){var req = new XMLHttpRequest();req.open(\"GET\",s,false);req.send(null);alert('File'+s+' deleted')}</script><h1>Logfiles</h1><table style=\"width:100%\" style=\"height:400\"><tr><TD style=\"width:30%\"><div>";
- end="</div></td><TD style=\"vertical-align:top\" style=\"width:68%\"><div>   <object id='prv' width='75%' height='500' ></object></div></td></tr></table> </body></html>";
- mid=listDirHTML();
- static String tot;
- tot=pre+mid+end;
- int  len=tot.length();
- uint8_t *buf;buf=(uint8_t *)malloc(len+1);
- memcpy(buf,tot.c_str(),len);
- request->send(200,"text/html",tot);
- free(buf);});
+    //static  String pre; String mid,end;
+   AsyncResponseStream* response = request->beginResponseStream("text/html");
+ //<meta http-equiv=\"refresh\" content=\"20\" >     
+ response->print("<html><body><script>function ab(s){pf=document.getElementById('prv');pf.data=s;}function cd(s){var req = new XMLHttpRequest();req.open(\"GET\",s,false);req.send(null);alert('File'+s+' deleted')}</script><h1>Logfiles</h1><table style=\"width:100%\" style=\"height:400\">");
+buflog[0]=0;
+  if (request->hasParam("plus")) stalog+=10;
+  else if (request->hasParam("min")) stalog-=10;
+  else stalog=0;
+ listDirHTML(buflog,stalog);
+ response->print(buflog);
+ response->print("<div>   <object id='prv' width=99%' height='70%' ></object></div></body></html>");//<TD style=\"vertical-align:top\" style=\"width:68%\">
+ request->send(response);
+ });
+ #endif
  serveur.on("/bara",HTTP_GET,[](AsyncWebServerRequest *request) {
       String pre,mid,end;
  pre="<html><meta http-equiv=\"refresh\" content=\"20\" ><body><h1>Position</h1><table><tr> \
@@ -323,7 +322,7 @@ void web_setup() {
 request->send(200,"text/text", resp);
   free(buf); 
   });
-
+#ifdef FILE
     serveur.on("/logfiledel",HTTP_GET, [](AsyncWebServerRequest *request) {
       if (! request->hasParam("file")) return;
       char *fn,filename[20]="/";
@@ -333,13 +332,7 @@ request->send(200,"text/text", resp);
  deleteFile2(LittleFS,filename);
  request->send(200,"text/text", "remoev");
   });
-  serveur.on("/",HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (request->hasParam("who")) {
-      Serial.printf("Who? %s\n", request->getParam("who")->value().c_str());
-    }
-
-    request->send(200, "text/html", (uint8_t *)htmlContent, htmlContentLength);
-  });
+#endif
   serveur.on("/cons",HTTP_GET,[](AsyncWebServerRequest *request) {
 static char HH[]= "	<!DOCTYPE html><html>\
 <script>function pageScroll(){window.scrollBy(0,100000);}\
@@ -349,20 +342,31 @@ req.onload = function () {document.getElementById('pre').innerHTML = document.ge
 req.send(null); }\
 </script>\
 <body  >\
-<pre  id='pre' nam='pre' onclick =  'setInterval(pageScroll,1000);setInterval(abc,1000)'>Click to activate</pre></body></html>";
+<pre  id='pre' nam='pre' onclick =  'setInterval(pageScroll,1000);setInterval(abc,500)'>Click to activate</pre></body></html>";
  AsyncResponseStream* response = request->beginResponseStream("text/html");
       response->print(HH);
       //response->print(HE);
       request->send(response);
-
       custer=true;
-      
    });
  serveur.on("/ring",HTTP_GET,[](AsyncWebServerRequest *request) {
+  static unsigned char c[100];
              AsyncResponseStream* response = request->beginResponseStream("text/html");
- while (ron.available()>1) 
-        {char c=(char)ron.read();
-        response->print(c);      //Serial.printf("<%d>",c);
+            /*  if (ron.available()>1) 
+                      {
+                              int n;
+                                      //memset((void *)c,0,100);Serial.println((char *)c);
+                                              n=ron.read((uint8_t *)c,99);
+                                                      c[n+1]=0;//Serial.printf("<%d !%s\n",n,(char *)c);
+                                                              response->print((char *)c);      //Serial.printf("<%d>",c);
+                                                              */
+ if (ron.available()>1) 
+        {
+        int n;
+        //memset((void *)c,0,100);Serial.println((char *)c);
+        n=ron.read((uint8_t *)c,99);
+        c[n+1]=0;//Serial.printf("<%d !%s\n",n,(char *)c);
+        response->print((char *)c);      //Serial.printf("<%d>",c);
       }
       request->send(response);
                                     custer=true;  

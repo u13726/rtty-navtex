@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <Arduino.h>
 #include "FS.h"
 #include <LittleFS.h>
@@ -43,37 +44,58 @@ void listDir(fs::FS &fs, const char *dirname, uint8_t levels) {
         listDir(fs, file.path(), levels - 1);
       }
     } else {
+      char fn[40];
+      strcpy(fn, file.name());
       Serial.print("  FILE: ");
-      Serial.print(file.name());
+      Serial.print(fn);
       Serial.print("\tSIZE: ");
       Serial.println(file.size());
-      if(file.size()>10000) {char fn[20];strcpy(fn,file.path());file.close();deleteFile2(LittleFS, fn);}
+      if ((file.size() > 10000) || strstr(fn, "'") || strstr(fn, "\"") || strstr(fn, "&") || strstr(fn, "\n") || strstr(fn, "\r")) {
+        strcpy(fn, file.path());
+        file.close();
+        deleteFile2(LittleFS, fn);
+      }
     }
     file = root.openNextFile();
   }
 }
-String listDirHTML( ) {
-  String str="";
+void listDirHTML(char *tmp,int sta) {
+  short n;
+  n = 0;
   File root = LittleFS.open("/");
   if (!root) {
     Serial.println("- failed to open directory");
-    return str;
+    return;
   }
   if (!root.isDirectory()) {
     Serial.println(" - not a directory");
-    return str;
+    return;
   }
-  str="<table width='200' height='400'>";  
   File file = root.openNextFile();
   while (file) {
-    if (! file.isDirectory()) {
-      str+="<tr><td onclick='ab(\"logfile?file="+String(file.name())+"\")'>"+String(file.name())+"</td><td>"+String(file.size());
-      str+="<td onclick='cd(\"logfiledel?file="+String(file.name())+"\")'>Del</td></tr>";
+    if (!file.isDirectory() ) {
+      char fn[50];
+      if (n>sta)
+      {strcpy(fn, file.name());
+       if (n == sta) strcat(tmp, "<tr>");
+       strcat(tmp,         "<td onclick='ab(\"logfile?file=");strcat(tmp, fn);strcat(tmp,"\")'>");strcat(tmp, fn);
+       strcat(tmp, "</td><td onclick='cd(\"logfiledel?file=");strcat(tmp, fn);strcat(tmp,"\")'>Del</td>");
+       strcat(tmp,    "<td><a download href=\"logfile?file=");strcat(tmp, fn);strcat(tmp,"\">Download</a></td>");
+       if ( ((++n)% 5)==0 ){
+         strcat(tmp, "</tr>");
+       }
+      }
+       else n++; 
+       file.close();
+      if (n ==(sta+10)) break;
     }
     file = root.openNextFile();
   }
-  str+="</table>";
-  return str;
+  if (n >= sta)
+    strcat(tmp,"</tr></table>");
+    if(sta>0) strcat(tmp,"<a href=/logs?min>Previous</a>");
+    if (n==sta+10) strcat(tmp,"<a href=logs?plus>Next</a> ");
+  return;
 }
 
 void createDir(fs::FS &fs, const char *path) {
@@ -113,8 +135,8 @@ void readFile(fs::FS &fs, const char *path) {
 void writeFile(fs::FS &fs, const char *path, const char *message) {
   Serial.printf("Writing file: %s\r\n", path);
 
-  File file = (fs.open(path, FILE_APPEND) );
-  if(!file) file= fs.open(path, FILE_WRITE);
+  File file = (fs.open(path, FILE_APPEND));
+  if (!file) file = fs.open(path, FILE_WRITE);
   if (!file) {
     Serial.println("- failed to open file for writing");
     return;
@@ -143,9 +165,13 @@ void appendFile(fs::FS &fs, const char *path, const char *message) {
   file.close();
 }
 
- // SPIFFS-like write and delete file, better use #define CONFIG_LITTLEFS_SPIFFS_COMPAT 1
+// SPIFFS-like write and delete file, better use #define CONFIG_LITTLEFS_SPIFFS_COMPAT 1
 
 void writeFile2(fs::FS &fs, const char *path, const char *message) {
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo)) {
+    Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+  }
   if (!fs.exists(path)) {
     if (strchr(path, '/')) {
       Serial.printf("Create missing folders of: %s\r\n", path);
@@ -232,33 +258,19 @@ void testFileIO(fs::FS &fs, const char *path) {
 }
 char cfn[20];
 short cfni;
-void setup_SD() { 
-   if (!LittleFS.begin(FORMAT_LITTLEFS_IF_FAILED)) {
+void setup_SD() {
+  if (!LittleFS.begin(FORMAT_LITTLEFS_IF_FAILED)) {
     Serial.println("LittleFS Mount Failed");
     return;
   }
-   for(cfni=0;cfni<100;cfni++)
-   {sprintf(cfn,"/res%03d.txt",cfni);
+  for (cfni = 0; cfni < 100; cfni++) {
+    sprintf(cfn, "/res%03d.txt", cfni);
     File file;
     if (file = LittleFS.open(cfn, FILE_READ))
-        file.close();
+      file.close();
     else
-     break;
-    }
-    listDir(LittleFS, "/", 1);
-  /*deleteFile(LittleFS, "/mydir/hello2.txt");
-  removeDir(LittleFS, "/mydir");
+      break;
+  }
   listDir(LittleFS, "/", 1);
-  writeFile(LittleFS, "/hello.txt", "Hello ");
-  appendFile(LittleFS, "/hello.txt", "World!\r\n");
-  readFile(LittleFS, "/hello.txt");
-  renameFile(LittleFS, "/hello.txt", "/foo.txt");
-  readFile(LittleFS, "/foo.txt");
-  deleteFile(LittleFS, "/foo.txt");
-  testFileIO(LittleFS, "/test.txt");
-  deleteFile(LittleFS, "/test.txt");
-
-  Serial.println("Test complete");
-*/
+  
 }
-
