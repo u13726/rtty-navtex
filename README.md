@@ -10,3 +10,4 @@ Uses libs:
   - Lcd
   - tFT
  
+Linked to audiokit as an ESP32 platform.
