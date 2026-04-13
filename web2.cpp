@@ -10,7 +10,7 @@
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include "time.h"
-#include "ssid.h"
+#include "config.h"
 char ssid [SSIDLEN]=      "Your ssid goed here      ";
 char password [SSIDLEN] = "or in the preferences    ";
 
@@ -30,6 +30,7 @@ extern void handle(char);
 extern char screen[40][81];
  #include "RingB.h"
  RingB ron(1111);
+ RingB han(20);
  bool custer=false;
  AsyncResponseStream* response ;
  
@@ -48,6 +49,10 @@ void web_log(char *s){
     }
     }
  
+ void Phandle(char ch)
+{han.write(ch);
+}
+
 void web_log(char s){
    if(custer && ron.availableToWrite()>1 ) 
    {if(s=='\n'||s=='\r')
@@ -73,7 +78,13 @@ int Baud = 50,Shift= 85;
 
 
   static const char *para PROGMEM = R"(
-    <!DOCTYPE html> <html><head><title>RTTY setup</title></head><body><h1>RTTY</h1>
+    <!DOCTYPE html> <html><head><title>RTTY setup</title></head>    <script>
+        function autoRefresh() {
+            window.location = window.location.href;
+        }
+        %REFRESH%
+        </Script>
+  <body><h1>RTTY</h1>
     <form id='effect-form' method='post' >
                 <div>
                     <input type='range' id='volume' name='volume'
@@ -111,12 +122,8 @@ int Baud = 50,Shift= 85;
                             %Hsb%>
                     <label for='Hsb'>Half stopbit</label>
                 </div>
-                <div>
-                    <input type='checkbox' id='Nav' name='Nav' 
-                            onchange='this.form.submit()'
-                    %Nav%>
-                    <label for='Nav'>NAVTEX</label>
-                </div>
+     <div><input type='checkbox' id='Nav' name='Nav' onchange='this.form.submit()' %Nav%><label for='Nav'>NAVTEX</label></div>        
+    <div><input type='checkbox' id='Cal' name='Cal' onchange='this.form.submit()' %Cal%> <label for='Cal'>Use FFT</label></div>
                 <div><input type='text' id='cmd' name='cmd' onchange='this.form.submit()' >cmd : </div><TABLE><TR>
                 <TD><div>
                     <input type='button' id='Search' value='Search' 
@@ -137,27 +144,32 @@ int Baud = 50,Shift= 85;
             </form> </body></html>
    )";
   static const size_t  paralen=strlen_P(para);
-  static rtty::Str html(3500);
+  static rtty::Str html(1024);
   void handleweb(AsyncWebServerRequest *request, char c)
   {char html[]="<html><body ><h1>Setup</h1><samp>Done</samp>\
-<script>setTimeout(function(){window.location.href = 'para';}, 200);</script></body></html>";
+<script>setTimeout(function(){window.location.href = 'para';}, 2000);</script></body></html>";
   if (c=='+' ||c=='-'  || c=='<' ||c=='>' || c=='(' ||c==')' )
   {char*s;
   s=strstr(html,"para");
   *s='b';
   }
     //parameters.parse(server->client());
-   handle(c);
+   Phandle(c);
     request->send(200,"text/html", html);
     }
+float c_volume,c_volumeOut,c_MARK,c_SPACE;
+int c_bidx,c_sidx;
+bool c_hsb,c_navtex,c_navfli;
+bool pagref=false;
 void getpara(AsyncWebServerRequest *request) 
 
   {    html=para;
-        html.replace("%volume%",volume);
-    html.replace("%volumeOut%",volumeOut);
-    html.replace("%MARK%",MARK);
-    html.replace("%SPACE%",SPACE);
-    html.replace("%Baud%",baud_tab[bidx]);
+        html.replace("%REFRESH%",pagref?";setTimeout('autoRefresh()', 2000)":"");
+        html.replace("%volume%",c_volume=volume);
+    html.replace("%volumeOut%",c_volumeOut=volumeOut);
+    html.replace("%MARK%",c_MARK=MARK);
+    html.replace("%SPACE%",c_SPACE=SPACE);
+    html.replace("%Baud%",baud_tab[c_bidx]=bidx);
     html.replace("%SSEL85%",sidx==0?"selected":"");
     html.replace("%SSEL170%",sidx==1?"selected":"");
     html.replace("%SSEL450%",sidx==2?"selected":"");
@@ -167,8 +179,9 @@ void getpara(AsyncWebServerRequest *request)
     html.replace("%BSEL200%",bidx==3?"selected":"");
     html.replace("%Hsb%",hsb?" checked ":"");
     html.replace("%Nav%",navtex?" checked ":"");
-   request->send(200,"text/html",(uint8_t *) html.c_str(),html.length());}
-#ifdef FILE 
+    html.replace("%Cal%",navfli?" checked ":"");
+   request->send(200,"text/html",(uint8_t *) html.c_str(),html.length());pagref=false;}
+#ifdef SAVE 
 extern void listDirHTML(char*,int n);
 char buflog[4096]="";
 int stalog=0;
@@ -201,64 +214,68 @@ void web_setup() {
      <iframe width='45%' height='48%' id='logs' src='logs'></iframe></body></html>)";
   static const size_t  hoverlen=strlen_P(hover);
 
-   serveur.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+   serveur.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {Serial.print(1);
     // need to cast to uint8_t*
     // if you do not, the const char* will be copied in a temporary String buffer
      request->send(200,"text/html",(uint8_t *) hover,hoverlen);
      //request->send(200, "text/html", (uint8_t *)htmlContent, htmlContentLength);
   });
     
-      serveur.on("/para",HTTP_GET, [](AsyncWebServerRequest *request) {
+      serveur.on("/para",HTTP_GET, [](AsyncWebServerRequest *request) {Serial.print(2);
     getpara(request);
   });
-    serveur.on("/para",HTTP_POST,[](AsyncWebServerRequest *request) {
+    serveur.on("/para",HTTP_POST,[](AsyncWebServerRequest *request) {Serial.print(3);
     if (request->hasParam("Baud", true)) 
         Baud = (request->getParam("Baud", true)->value().toInt());
     if (request->hasParam("Shift", true)) 
         Shift =(request->getParam("Shift", true)->value().toInt());
       if (request->hasParam("volume", true)) 
-        {volume =0.1+(request->getParam("volume", true)->value().toFloat());handle('w');}
+        {float t=(request->getParam("volume", true)->value().toFloat());
+         if(t!=c_volume){volume =0.1+t;Phandle('w');}
+        }
       if (request->hasParam("volumeOut", true)) 
-        {volumeOut =0.1+(request->getParam("volumeOut", true)->value().toFloat());handle('v');}
+        {float t=(request->getParam("volumeOut", true)->value().toFloat());
+        if(t!=c_volumeOut){volumeOut =0.1+t;Phandle('v');}
+        }
    for(bidx=0;baud_tab[bidx] && baud_tab[bidx]!=Baud;bidx++) ;
         if(!baud_tab[bidx]) bidx--;
         for(sidx=0;shift_tab[sidx] && shift_tab[sidx]!=Shift;sidx++);
         if(!shift_tab[sidx]) sidx--;
         hsb = (request->hasParam("Hsb", true));  
-      navtex = (request->hasParam("Nav", true));  
-      handle(navtex?'N':'n');
+       c_navtex=request->hasParam("Nav", true);if(c_navtex!=navtex){Phandle(c_navtex?'N':'n');pagref=true;}
+       c_navfli=request->hasParam("Cal", true);if(c_navfli!=navfli){Phandle(c_navfli?'g':'G');pagref=true;}
     if (request->hasParam("cmd", true)) 
        { String cmd;
        cmd =(request->getParam("cmd", true)->value());
        for(int h=0;h<cmd.length();h++)
-        handle(cmd[h]);
+        Phandle(cmd[h]);
        }
        getpara(request);
        });
-      serveur.on("/handle_s",HTTP_GET, [](AsyncWebServerRequest *request) {
+      serveur.on("/handle_s",HTTP_GET, [](AsyncWebServerRequest *request) {Serial.print(4);
       handleweb(request,'s');});
-  serveur.on("/handle_pplus",HTTP_GET, [](AsyncWebServerRequest *request) {
+  serveur.on("/handle_pplus",HTTP_GET, [](AsyncWebServerRequest *request) {Serial.print(5);
       handleweb(request,'>');});
-  serveur.on("/handle_mmin",HTTP_GET, [](AsyncWebServerRequest *request) {
+  serveur.on("/handle_mmin",HTTP_GET, [](AsyncWebServerRequest *request) {Serial.print(6);
       handleweb(request,'<');});
-  serveur.on("/handle_plus",HTTP_GET, [](AsyncWebServerRequest *request) {
+  serveur.on("/handle_plus",HTTP_GET, [](AsyncWebServerRequest *request) {Serial.print(7);
       handleweb(request,'+');});
-  serveur.on("/handle_min",HTTP_GET, [](AsyncWebServerRequest *request) {
+  serveur.on("/handle_min",HTTP_GET, [](AsyncWebServerRequest *request) {Serial.print(8);
       handleweb(request,'-');});
-  serveur.on("/handle_ppplus",HTTP_GET, [](AsyncWebServerRequest *request) {
+  serveur.on("/handle_ppplus",HTTP_GET, [](AsyncWebServerRequest *request) {Serial.print(9);
       handleweb(request,')');});
-  serveur.on("/handle_mmmin",HTTP_GET, [](AsyncWebServerRequest *request) {
+  serveur.on("/handle_mmmin",HTTP_GET, [](AsyncWebServerRequest *request) {Serial.print(10);
       handleweb(request,'(');});
   
-    serveur.on("/handle_I",HTTP_GET, [](AsyncWebServerRequest *request) {
+    serveur.on("/handle_I",HTTP_GET, [](AsyncWebServerRequest *request) {Serial.print(11);
     handleweb(request,'i');});
-  serveur.on("/handle_P",HTTP_GET,[](AsyncWebServerRequest *request) {
+  serveur.on("/handle_P",HTTP_GET,[](AsyncWebServerRequest *request) {Serial.print(12);
     handleweb(request,'P');});
   
-  serveur.on("/handle_S",HTTP_GET,[](AsyncWebServerRequest *request) {
+  serveur.on("/handle_S",HTTP_GET,[](AsyncWebServerRequest *request) {Serial.print(13);
     handleweb(request,'S');});
-  #ifdef FILE
-  serveur.on("/logs",HTTP_GET,[](AsyncWebServerRequest *request) {
+  #ifdef SAVE
+  serveur.on("/logs",HTTP_GET,[](AsyncWebServerRequest *request) {Serial.print(14);
     //static  String pre; String mid,end;
    AsyncResponseStream* response = request->beginResponseStream("text/html");
  //<meta http-equiv=\"refresh\" content=\"20\" >     
@@ -273,7 +290,7 @@ buflog[0]=0;
  request->send(response);
  });
  #endif
- serveur.on("/bara",HTTP_GET,[](AsyncWebServerRequest *request) {
+ serveur.on("/bara",HTTP_GET,[](AsyncWebServerRequest *request) {Serial.print(15);
       String pre,mid,end;
  pre="<html><meta http-equiv=\"refresh\" content=\"20\" ><body><h1>Position</h1><table><tr> \
  <TD><input type='button' id='mmmin' value='---' onclick='document.location.href=\"/handle_mmmin\"'  > </TD>\
@@ -293,12 +310,12 @@ buflog[0]=0;
  </tr></table></body></html>";
  for (int i=39;i>=0;i--)
    if (strchr(screen[i],'*') ||strchr(screen[i],'M') ||strchr(screen[i],'S'  )) mid+=String(screen[i])+"\n";
- mid += String("Mark: " )+String(MARK)+String(" Space: ")+String(SPACE);
+ mid += String("Mark: " )+String(MARK)+String(" CF: " )+String(MARK+(SPACE-MARK)/2)+String(" Space: ")+String(SPACE);
  static String tot;
  tot=pre+mid+end;
   request->send(200,"text/html",tot);
  });
-
+                                                                                                                                    
     serveur.on("/logfile",HTTP_GET, [](AsyncWebServerRequest *request) {
       if (! request->hasParam("file")) return;
       char *fn,filename[20]="/";
@@ -322,7 +339,7 @@ buflog[0]=0;
 request->send(200,"text/text", resp);
   free(buf); 
   });
-#ifdef FILE
+#ifdef SAVE
     serveur.on("/logfiledel",HTTP_GET, [](AsyncWebServerRequest *request) {
       if (! request->hasParam("file")) return;
       char *fn,filename[20]="/";
@@ -342,7 +359,7 @@ req.onload = function () {document.getElementById('pre').innerHTML = document.ge
 req.send(null); }\
 </script>\
 <body  >\
-<pre  id='pre' nam='pre' onclick =  'setInterval(pageScroll,1000);setInterval(abc,500)'>Click to activate</pre></body></html>";
+<pre  id='pre' nam='pre' onclick =  'setInterval(pageScroll,1000);setInterval(abc,1000)'>Click to activate</pre></body></html>";
  AsyncResponseStream* response = request->beginResponseStream("text/html");
       response->print(HH);
       //response->print(HE);

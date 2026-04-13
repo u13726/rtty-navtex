@@ -97,8 +97,25 @@ class RingB {
             return len;
         }
 
+        float  writeFloat(float f)
+        {char tmp[20];
+         sprintf(tmp,"%.4f",f);
+         write((uint8_t *)tmp,strlen(tmp));
+         write('@');
+        }
 
- 
+
+        float  parseFloat()
+        {char tmp[20];
+         float f=0.0; int i;
+         for (i=0;i<19;i++)
+            {tmp[i]=read();
+             if (tmp[i]=='@)') break;
+            }
+        tmp[i]=0;
+        sscanf(tmp,"%f",&f);
+        return f;
+        }
     protected:
         char* buffer;
         int max_len;

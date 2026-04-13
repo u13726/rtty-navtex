@@ -2,21 +2,10 @@
 #include <Arduino.h>
 #include "FS.h"
 #include <LittleFS.h>
-
-/* You only need to format LittleFS the first time you run a
-   test or else use the LITTLEFS plugin to create a partition
-   https://github.com/lorol/arduino-esp32littlefs-plugin
-
-   If you test two partitions, you need to use a custom
-   partition.csv file, see in the sketch folder */
-
-//#define TWOPART
-
+ 
 #define FORMAT_LITTLEFS_IF_FAILED true
 void deleteFile2(fs::FS &fs, const char *path) {
-  Serial.printf("Deleting file and empty folders on path: %s\r\n", path);
-
-  if (fs.remove(path)) {
+   if (fs.remove(path)) {
     Serial.println("- file deleted");
   } else {
     Serial.println("- delete failed");
@@ -50,11 +39,12 @@ void listDir(fs::FS &fs, const char *dirname, uint8_t levels) {
       Serial.print(fn);
       Serial.print("\tSIZE: ");
       Serial.println(file.size());
-      if ((file.size() > 10000) || strstr(fn, "'") || strstr(fn, "\"") || strstr(fn, "&") || strstr(fn, "\n") || strstr(fn, "\r")) {
+      if ((file.size() > 100) || strstr(fn, "'") || strstr(fn, "\"") || strstr(fn, "&") || strstr(fn, "\n") || strstr(fn, "\r")) {
         strcpy(fn, file.path());
         file.close();
         deleteFile2(LittleFS, fn);
       }
+      file.close();
     }
     file = root.openNextFile();
   }
@@ -79,8 +69,8 @@ void listDirHTML(char *tmp,int sta) {
       {strcpy(fn, file.name());
        if (n == sta) strcat(tmp, "<tr>");
        strcat(tmp,         "<td onclick='ab(\"logfile?file=");strcat(tmp, fn);strcat(tmp,"\")'>");strcat(tmp, fn);
-       strcat(tmp, "</td><td onclick='cd(\"logfiledel?file=");strcat(tmp, fn);strcat(tmp,"\")'>Del</td>");
-       strcat(tmp,    "<td><a download href=\"logfile?file=");strcat(tmp, fn);strcat(tmp,"\">Download</a></td>");
+       strcat(tmp, "</td><td onclick='cd(\"logfiledel?file=");strcat(tmp, fn);strcat(tmp,"\")'> Del  </td>");
+       strcat(tmp,    "<td><a download href=\"logfile?file=");strcat(tmp, fn);strcat(tmp,"\"> Load </a></td>");
        if ( ((++n)% 5)==0 ){
          strcat(tmp, "</tr>");
        }
@@ -93,30 +83,11 @@ void listDirHTML(char *tmp,int sta) {
   }
   if (n >= sta)
     strcat(tmp,"</tr></table>");
-    if(sta>0) strcat(tmp,"<a href=/logs?min>Previous</a>");
-    if (n==sta+10) strcat(tmp,"<a href=logs?plus>Next</a> ");
+    if(sta>0) strcat(tmp,"<a align=\"left\" href=/logs?min>Previous</a>");
+    if (n==sta+10) strcat(tmp,"<a align=\"right\" href=logs?plus >Next</a> ");
   return;
 }
-
-void createDir(fs::FS &fs, const char *path) {
-  Serial.printf("Creating Dir: %s\n", path);
-  if (fs.mkdir(path)) {
-    Serial.println("Dir created");
-  } else {
-    Serial.println("mkdir failed");
-  }
-}
-
-void removeDir(fs::FS &fs, const char *path) {
-  Serial.printf("Removing Dir: %s\n", path);
-  if (fs.rmdir(path)) {
-    Serial.println("Dir removed");
-  } else {
-    Serial.println("rmdir failed");
-  }
-}
-
-void readFile(fs::FS &fs, const char *path) {
+ void readFile(fs::FS &fs, const char *path) {
   Serial.printf("Reading file: %s\r\n", path);
 
   File file = fs.open(path);
@@ -202,75 +173,13 @@ void writeFile2(fs::FS &fs, const char *path, const char *message) {
   }
   file.close();
 }
-
-void testFileIO(fs::FS &fs, const char *path) {
-  Serial.printf("Testing file I/O with %s\r\n", path);
-
-  static uint8_t buf[512];
-  size_t len = 0;
-  File file = fs.open(path, FILE_WRITE);
-  if (!file) {
-    Serial.println("- failed to open file for writing");
-    return;
-  }
-
-  size_t i;
-  Serial.print("- writing");
-  uint32_t start = millis();
-  for (i = 0; i < 2048; i++) {
-    if ((i & 0x001F) == 0x001F) {
-      Serial.print(".");
-    }
-    file.write(buf, 512);
-  }
-  Serial.println("");
-  uint32_t end = millis() - start;
-  Serial.printf(" - %u bytes written in %lu ms\r\n", 2048 * 512, end);
-  file.close();
-
-  file = fs.open(path);
-  start = millis();
-  end = start;
-  i = 0;
-  if (file && !file.isDirectory()) {
-    len = file.size();
-    size_t flen = len;
-    start = millis();
-    Serial.print("- reading");
-    while (len) {
-      size_t toRead = len;
-      if (toRead > 512) {
-        toRead = 512;
-      }
-      file.read(buf, toRead);
-      if ((i++ & 0x001F) == 0x001F) {
-        Serial.print(".");
-      }
-      len -= toRead;
-    }
-    Serial.println("");
-    end = millis() - start;
-    Serial.printf("- %u bytes read in %lu ms\r\n", flen, end);
-    file.close();
-  } else {
-    Serial.println("- failed to open file for reading");
-  }
-}
-char cfn[20];
+ char cfn[20];
 short cfni;
 void setup_SD() {
   if (!LittleFS.begin(FORMAT_LITTLEFS_IF_FAILED)) {
     Serial.println("LittleFS Mount Failed");
     return;
   }
-  for (cfni = 0; cfni < 100; cfni++) {
-    sprintf(cfn, "/res%03d.txt", cfni);
-    File file;
-    if (file = LittleFS.open(cfn, FILE_READ))
-      file.close();
-    else
-      break;
-  }
-  listDir(LittleFS, "/", 1);
+ // listDir(LittleFS, "/", 1);
   
 }
