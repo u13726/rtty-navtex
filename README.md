@@ -5,10 +5,11 @@ POC to decode RTTY and NAVTEX on an ESP32.2 decoding approaches included. New on
 Output on a web interface or LCD/TFT screen.
 
 Uses libs:
-- preferences
-- audio-tools
+  - preferences
+  - audio-tools
   - Lcd
-  - tFT
+  - TFT  
+the functions ( tft output, web , file save) to in clude are defined in the tconfig file. 
  
 Linked to audiokit as an ESP32 platform.
 
